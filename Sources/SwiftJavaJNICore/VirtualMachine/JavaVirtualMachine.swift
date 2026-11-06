@@ -52,7 +52,10 @@ public final class JavaVirtualMachine: @unchecked Sendable {
   }
 
   /// The Java virtual machine instance.
-  private let jvm: JavaVMPointer
+  let jvm: JavaVMPointer
+
+  /// The application class loader, once captured by `onLoad(_:)` or set explicitly.
+  let applicationClassLoaderState: LockedState<ApplicationClassLoader?> = .init(initialState: nil)
 
   let classpath: [String]
 
@@ -208,6 +211,10 @@ extension JavaVirtualMachine {
 
     JavaVirtualMachine.destroyTLS.set(jniEnv!)
 
+    // A natively attached thread starts with the system (JVM) or null (Android)
+    // context class loader, which can't see application classes.
+    applyApplicationClassLoader(to: jniEnv!)
+
     return jniEnv!
   }
 
@@ -257,7 +264,7 @@ extension JavaVirtualMachine {
   /// shared instance releases the previous one, so callers must not replace the
   /// JVM while other threads are still using the old instance (the same
   /// requirement `destroyJVM()` already has).
-  private static func publish(_ javaVM: JavaVirtualMachine?, into state: inout JavaVirtualMachine?) {
+  static func publish(_ javaVM: JavaVirtualMachine?, into state: inout JavaVirtualMachine?) {
     if state === javaVM {
       return
     }
