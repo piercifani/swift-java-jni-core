@@ -51,7 +51,7 @@ private let describeOOMException: Bool = {
 
 extension UnsafeMutablePointer<JNIEnv?> {
 
-  /// Handle a `PushLocalFrame` failure by optionally describing the pending
+  /// Handle a JNI allocation failure by optionally describing the pending
   /// exception to stderr, clearing it, and throwing a Swift error.
   ///
   /// Must be called while the `OutOfMemoryError` is still pending (i.e.
@@ -59,14 +59,14 @@ extension UnsafeMutablePointer<JNIEnv?> {
   /// pending exception — it prints the stack trace to stderr and does **not**
   /// clear the exception.
   @inline(__always)
-  internal func throwPushLocalFrameOOM(capacity: Int) throws(JNIError) -> Never {
+  internal func throwOOM(_ error: JNIError) throws(JNIError) -> Never {
     if describeOOMException {
       // Print the pending OutOfMemoryError stack trace to stderr.
       // ExceptionDescribe does not clear the exception.
       self.interface.ExceptionDescribe(self)
     }
     self.interface.ExceptionClear(self)
-    throw JNIError.outOfMemory(framePushCapacity: capacity)
+    throw error
   }
 
   /// Execute `body` inside a JNI local reference frame.
@@ -89,7 +89,7 @@ extension UnsafeMutablePointer<JNIEnv?> {
   public func withLocalFrame<R>(capacity: Int = 16, _ body: () throws -> R) throws -> R {
     let pushed = self.interface.PushLocalFrame(self, Int32(capacity))
     if pushed != JNI_OK {
-      try self.throwPushLocalFrameOOM(capacity: capacity)
+      try self.throwOOM(.outOfMemory(framePushCapacity: capacity))
     }
     defer { _ = self.interface.PopLocalFrame(self, nil) }
     return try body()
@@ -118,7 +118,7 @@ extension UnsafeMutablePointer<JNIEnv?> {
   public func withLocalFramePromotingResult(capacity: Int = 16, _ body: () throws -> jobject?) throws -> jobject? {
     let pushed = self.interface.PushLocalFrame(self, Int32(capacity))
     if pushed != JNI_OK {
-      try self.throwPushLocalFrameOOM(capacity: capacity)
+      try self.throwOOM(.outOfMemory(framePushCapacity: capacity))
     }
     do {
       let result = try body()

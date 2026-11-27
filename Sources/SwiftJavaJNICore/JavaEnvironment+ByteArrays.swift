@@ -15,12 +15,11 @@
 /// What to do with a primitive array's elements when releasing them.
 ///
 /// See [Release<Type>ArrayElements](https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/functions.html#Release_PrimitiveType_ArrayElements_routines).
+/// The buffer is always freed.
 public enum JavaArrayReleaseMode: jint, Sendable {
-  /// Copy changes back to the Java array (if the elements were a copy) and free the buffer.
-  case copyBackAndRelease = 0
-  /// Copy changes back to the Java array but keep the buffer (`JNI_COMMIT`).
-  case copyBack = 1
-  /// Free the buffer without copying changes back (`JNI_ABORT`).
+  /// Copy changes back to the Java array (if the elements were a copy).
+  case copyBack = 0
+  /// Don't copy changes back (`JNI_ABORT`).
   case discard = 2
 }
 
@@ -32,22 +31,28 @@ extension UnsafeMutablePointer<JNIEnv?> {
   /// `releaseMode`. Unlike converting through `[Int8]`, this doesn't copy into a
   /// Swift array first, which matters for large payloads such as `Data`.
   /// No other JNI calls should be made from `body`.
+  ///
+  /// - Throws: ``JNIError/arrayOutOfMemory(length:)`` if the JVM can't provide
+  ///   the elements, or whatever `body` throws.
   public func withByteArrayElements<Result>(
     _ array: jbyteArray,
     releaseMode: JavaArrayReleaseMode = .discard,
     _ body: (UnsafeMutableBufferPointer<jbyte>) throws -> Result
-  ) rethrows -> Result {
+  ) throws -> Result {
     let count = Int(interface.GetArrayLength(self, array))
-    let elements = interface.GetByteArrayElements(self, array, nil)
+    guard let elements = interface.GetByteArrayElements(self, array, nil) else {
+      try throwOOM(.arrayOutOfMemory(length: count))
+    }
     defer { interface.ReleaseByteArrayElements(self, array, elements, releaseMode.rawValue) }
-    return try body(UnsafeMutableBufferPointer(start: elements, count: elements == nil ? 0 : count))
+    return try body(UnsafeMutableBufferPointer(start: elements, count: count))
   }
 
   /// Creates a Java `byte[]` holding a copy of `bytes`, as a local reference.
-  /// Returns `nil` if the JVM couldn't allocate the array (an `OutOfMemoryError` is then pending).
-  public func newByteArray(_ bytes: UnsafeRawBufferPointer) -> jbyteArray? {
+  ///
+  /// - Throws: ``JNIError/arrayOutOfMemory(length:)`` if the JVM can't allocate the array.
+  public func newByteArray(_ bytes: UnsafeRawBufferPointer) throws(JNIError) -> jbyteArray {
     guard let array = interface.NewByteArray(self, jsize(bytes.count)) else {
-      return nil
+      try throwOOM(.arrayOutOfMemory(length: bytes.count))
     }
     if let base = bytes.baseAddress, !bytes.isEmpty {
       interface.SetByteArrayRegion(self, array, 0, jsize(bytes.count), base.assumingMemoryBound(to: jbyte.self))

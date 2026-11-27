@@ -22,4 +22,11 @@ public enum JNIError: Error {
   ///
   /// - Parameter framePushCapacity: The requested frame capacity that failed.
   case outOfMemory(framePushCapacity: Int)
+
+  /// The JVM was unable to allocate or pin a primitive array.
+  ///
+  /// The pending Java `OutOfMemoryError` is cleared before this error is thrown.
+  ///
+  /// - Parameter length: The length of the array that failed.
+  case arrayOutOfMemory(length: Int)
 }
